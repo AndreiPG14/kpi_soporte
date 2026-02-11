@@ -97,6 +97,7 @@ def generar_analisis_temporal(df_filtrado):
     2. **Semanas Críticas**
        - Semana con más incidencias: Semana {semana_max} ({modificaciones_por_semana[semana_max]:,.0f} modificaciones)
        - Semana con menos incidencias: Semana {semana_min} ({modificaciones_por_semana[semana_min]:,.0f} modificaciones)
+       - Variación entre pico y valle: {((modificaciones_por_semana[semana_max] - modificaciones_por_semana[semana_min]) / modificaciones_por_semana[semana_min] * 100):.2f}%
        - Semanas sobre el promedio: {semanas_sobre_promedio} de {len(modificaciones_por_semana)}
     
     3. **Patrón Observado**
@@ -148,9 +149,10 @@ def generar_analisis_responsables(df_filtrado):
     **Diagnóstico:** {'Los procesos, no el personal, son el problema principal - revisar procedimientos' if concentracion_top5 < 40 else 'Hay un problema significativo de inconsistencia - combinar análisis de procesos y capacitación'}
     
     **Plan de Acción:**
-       1. Sesiones de mentoría y capacitación personalizada
-       2. Identificar si hay factores externos (volumen, complejidad, cambios recientes)
-       3. Implementar sistema de doble verificación para casos críticos
+       1. Auditoría detallada de los Top 5 responsables (análisis de tipos de errores)
+       2. Sesiones de mentoría y capacitación personalizada
+       3. Identificar si hay factores externos (volumen, complejidad, cambios recientes)
+       4. Implementar sistema de doble verificación para casos críticos
     """
     return analisis
 
@@ -226,7 +228,7 @@ def generar_analisis_tipos_incidencia(df_filtrado):
        - Top 3 tipos representan: {tipos_incidencia.head(3).sum() / total * 100:.1f}% del total
        - {'Alta concentración en pocos tipos - enfoque en 2-3 problemas clave' if tipos_incidencia.head(3).sum() / total > 0.70 else 'Incidencias variadas - requiere enfoque multi-frente'}
     
-    **Recomendación:** Realizar análisis de causa raíz para {tipo_mayor}, que es el driver principal de errores
+    **Recomendación:** Realizar análisis de causa raíz (5 Why's) para {tipo_mayor}, que es el driver principal de errores
     """
     return analisis
 
@@ -432,6 +434,33 @@ def main():
             fig_pie_resp.update_layout(title="Distribución entre Top 5")
             st.plotly_chart(fig_pie_resp, use_container_width=True)
         
+        # Tabla detallada de Top 5 con tipo de incidencia principal
+        st.subheader("📋 Detalle de Top 5 Responsables - Con Tipo de Incidencia")
+        
+        top_5_detalles = []
+        for responsable in top_5_responsables.index:
+            datos_responsable = df_filtrado[df_filtrado['RESPONSABLE DE INCIDENCIA'] == responsable]
+            total_mods = datos_responsable['CANTIDAD MODIFICADA'].sum()
+            
+            # Tipo de incidencia más frecuente
+            tipo_principal = datos_responsable['TIPO INCIDENCIA'].value_counts().idxmax()
+            cantidad_tipo = datos_responsable[datos_responsable['TIPO INCIDENCIA'] == tipo_principal].shape[0]
+            
+            # Porcentaje del tipo principal
+            pct_tipo = (cantidad_tipo / len(datos_responsable)) * 100
+            
+            top_5_detalles.append({
+                'Responsable': responsable,
+                'Total Modificaciones': int(total_mods),
+                'Tipo Principal': tipo_principal,
+                'Casos del Tipo': int(cantidad_tipo),
+                '% del Tipo': f'{pct_tipo:.1f}%',
+                'Porcentaje Total': f'{(total_mods/total_mod*100):.1f}%'
+            })
+        
+        df_top_5_detalles = pd.DataFrame(top_5_detalles)
+        st.dataframe(df_top_5_detalles, use_container_width=True)
+        
         with st.expander("📋 Análisis Detallado - Responsables"):
             st.markdown(generar_analisis_responsables(df_filtrado))
         
@@ -502,7 +531,7 @@ def main():
         st.plotly_chart(fig_area, use_container_width=True)
         
         # ==================== 7. RESUMEN EJECUTIVO ====================
-        st.header("📊 Resumen")
+        st.header("📊 Resumen Ejecutivo")
         
         resumen = f"""
         **CONCLUSIONES PRINCIPALES:**
@@ -518,6 +547,7 @@ def main():
            (Semana {modificaciones_por_semana.index[0]}: {modificaciones_por_semana.iloc[0]:,.0f} → Semana {modificaciones_por_semana.index[-1]}: {modificaciones_por_semana.iloc[-1]:,.0f})
         
         4. **Recomendaciones Críticas:**
+           ✓ Implementar auditoría operativa en las áreas/empresas con mayor cantidad de incidencias
            ✓ Establecer plan de capacitación especializado para los Top 5 responsables
            ✓ Realizar análisis de causa raíz del tipo de incidencia más frecuente
            ✓ Implementar sistema de alertas tempranas para semanas con incrementos > 20%
