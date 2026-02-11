@@ -434,20 +434,20 @@ def main():
             fig_pie_resp.update_layout(title="Distribución entre Top 5")
             st.plotly_chart(fig_pie_resp, use_container_width=True)
         
-        # Tabla detallada de Top 5 con TODAS las categorías (planillas, productividad, jarras)
-        st.subheader("📋 Detalle de Top 5 Responsables - Todas las Categorías")
+        # Tabla detallada de Top 5 con TODAS las categorías basado en CANTIDAD MODIFICADA
+        st.subheader("📋 Detalle de Top 5 Responsables - Todas las Categorías (por Cantidad Modificada)")
         
         top_5_detalles = []
         for responsable in top_5_responsables.index:
             datos_responsable = df_filtrado[df_filtrado['RESPONSABLE DE INCIDENCIA'] == responsable]
             total_mods = datos_responsable['CANTIDAD MODIFICADA'].sum()
             
-            # TIPO más frecuente (planillas, productividad, jarras, etc.)
-            tipos_distribucion = datos_responsable['TIPO'].value_counts()
+            # Agrupar por TIPO y sumar CANTIDAD MODIFICADA
+            tipos_distribucion = datos_responsable.groupby('TIPO')['CANTIDAD MODIFICADA'].sum().sort_values(ascending=False)
             
-            # Construir string con todas las categorías y sus casos
+            # Construir string con todas las categorías y sus modificaciones
             categorias_texto = " | ".join([
-                f"{tipo}: {cantidad} ({(cantidad/len(datos_responsable)*100):.1f}%)"
+                f"{tipo}: {int(cantidad)} ({(cantidad/total_mods*100):.1f}%)"
                 for tipo, cantidad in tipos_distribucion.items()
             ])
             
@@ -462,12 +462,12 @@ def main():
         st.dataframe(df_top_5_detalles, use_container_width=True, height=300)
         
         # Mostrar vista expandida más detallada
-        st.subheader("📊 Vista Expandida - Desglose Completo por Categoría")
+        st.subheader("📊 Vista Expandida - Desglose Completo por Categoría (Cantidad Modificada)")
         
         for idx, responsable in enumerate(top_5_responsables.index, 1):
             datos_responsable = df_filtrado[df_filtrado['RESPONSABLE DE INCIDENCIA'] == responsable]
             total_mods = datos_responsable['CANTIDAD MODIFICADA'].sum()
-            tipos_distribucion = datos_responsable['TIPO'].value_counts()
+            tipos_distribucion = datos_responsable.groupby('TIPO')['CANTIDAD MODIFICADA'].sum().sort_values(ascending=False)
             
             with st.expander(f"🔍 {idx}. {responsable} - {int(total_mods)} modificaciones"):
                 col1, col2 = st.columns([1, 2])
@@ -478,10 +478,10 @@ def main():
                     st.metric("Categorías Diferentes", len(tipos_distribucion))
                 
                 with col2:
-                    st.write("**Distribución por Categoría:**")
+                    st.write("**Distribución por Categoría (Cantidad Modificada):**")
                     for tipo, cantidad in tipos_distribucion.items():
-                        porcentaje = (cantidad / len(datos_responsable)) * 100
-                        st.write(f"• **{tipo}**: {cantidad} casos ({porcentaje:.1f}%)")
+                        porcentaje = (cantidad / total_mods) * 100
+                        st.write(f"• **{tipo}**: {int(cantidad)} modificaciones ({porcentaje:.1f}%)")
                 
                 # Mini gráfico de barras por categoría
                 fig_cat = go.Figure(go.Bar(
@@ -489,12 +489,12 @@ def main():
                     y=tipos_distribucion.index,
                     orientation='h',
                     marker_color='rgba(100, 150, 200, 0.7)',
-                    text=[f'{val} casos' for val in tipos_distribucion.values],
+                    text=[f'{int(val)} mods' for val in tipos_distribucion.values],
                     textposition='outside'
                 ))
                 fig_cat.update_layout(
-                    title=f"Categorías de {responsable}",
-                    xaxis_title="Cantidad de Casos",
+                    title=f"Categorías de {responsable} - Por Cantidad Modificada",
+                    xaxis_title="Cantidad Modificada",
                     yaxis_title="Categoría",
                     height=300
                 )
