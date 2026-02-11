@@ -434,32 +434,71 @@ def main():
             fig_pie_resp.update_layout(title="Distribución entre Top 5")
             st.plotly_chart(fig_pie_resp, use_container_width=True)
         
-        # Tabla detallada de Top 5 con tipo de incidencia principal
-        st.subheader("📋 Detalle de Top 5 Responsables - Con Tipo de Incidencia")
+        # Tabla detallada de Top 5 con TODAS las categorías (planillas, productividad, jarras)
+        st.subheader("📋 Detalle de Top 5 Responsables - Todas las Categorías")
         
         top_5_detalles = []
         for responsable in top_5_responsables.index:
             datos_responsable = df_filtrado[df_filtrado['RESPONSABLE DE INCIDENCIA'] == responsable]
             total_mods = datos_responsable['CANTIDAD MODIFICADA'].sum()
             
-            # Tipo de incidencia más frecuente
-            tipo_principal = datos_responsable['TIPO INCIDENCIA'].value_counts().idxmax()
-            cantidad_tipo = datos_responsable[datos_responsable['TIPO INCIDENCIA'] == tipo_principal].shape[0]
+            # TIPO más frecuente (planillas, productividad, jarras, etc.)
+            tipos_distribucion = datos_responsable['TIPO'].value_counts()
             
-            # Porcentaje del tipo principal
-            pct_tipo = (cantidad_tipo / len(datos_responsable)) * 100
+            # Construir string con todas las categorías y sus casos
+            categorias_texto = " | ".join([
+                f"{tipo}: {cantidad} ({(cantidad/len(datos_responsable)*100):.1f}%)"
+                for tipo, cantidad in tipos_distribucion.items()
+            ])
             
             top_5_detalles.append({
                 'Responsable': responsable,
                 'Total Modificaciones': int(total_mods),
-                'Tipo Principal': tipo_principal,
-                'Casos del Tipo': int(cantidad_tipo),
-                '% del Tipo': f'{pct_tipo:.1f}%',
-                'Porcentaje Total': f'{(total_mods/total_mod*100):.1f}%'
+                'Categorías': categorias_texto,
+                '% Total': f'{(total_mods/total_mod*100):.1f}%'
             })
         
         df_top_5_detalles = pd.DataFrame(top_5_detalles)
-        st.dataframe(df_top_5_detalles, use_container_width=True)
+        st.dataframe(df_top_5_detalles, use_container_width=True, height=300)
+        
+        # Mostrar vista expandida más detallada
+        st.subheader("📊 Vista Expandida - Desglose Completo por Categoría")
+        
+        for idx, responsable in enumerate(top_5_responsables.index, 1):
+            datos_responsable = df_filtrado[df_filtrado['RESPONSABLE DE INCIDENCIA'] == responsable]
+            total_mods = datos_responsable['CANTIDAD MODIFICADA'].sum()
+            tipos_distribucion = datos_responsable['TIPO'].value_counts()
+            
+            with st.expander(f"🔍 {idx}. {responsable} - {int(total_mods)} modificaciones"):
+                col1, col2 = st.columns([1, 2])
+                
+                with col1:
+                    st.write("**Resumen:**")
+                    st.metric("Total Modificaciones", int(total_mods))
+                    st.metric("Categorías Diferentes", len(tipos_distribucion))
+                
+                with col2:
+                    st.write("**Distribución por Categoría:**")
+                    for tipo, cantidad in tipos_distribucion.items():
+                        porcentaje = (cantidad / len(datos_responsable)) * 100
+                        st.write(f"• **{tipo}**: {cantidad} casos ({porcentaje:.1f}%)")
+                
+                # Mini gráfico de barras por categoría
+                fig_cat = go.Figure(go.Bar(
+                    x=tipos_distribucion.values,
+                    y=tipos_distribucion.index,
+                    orientation='h',
+                    marker_color='rgba(100, 150, 200, 0.7)',
+                    text=[f'{val} casos' for val in tipos_distribucion.values],
+                    textposition='outside'
+                ))
+                fig_cat.update_layout(
+                    title=f"Categorías de {responsable}",
+                    xaxis_title="Cantidad de Casos",
+                    yaxis_title="Categoría",
+                    height=300
+                )
+                st.plotly_chart(fig_cat, use_container_width=True)
         
         with st.expander("📋 Análisis Detallado - Responsables"):
             st.markdown(generar_analisis_responsables(df_filtrado))
