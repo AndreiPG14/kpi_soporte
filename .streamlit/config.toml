@@ -24,3 +24,11 @@ serverAddress = "localhost"
 
 [runner]
 magicEnabled = true
+
+[client]
+toolbarMode = "auto"
+
+[auth]
+# Habilitar autenticación por email
+_enable_sharing = true
+_enable_email = true

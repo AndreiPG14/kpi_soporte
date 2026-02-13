@@ -137,19 +137,39 @@ def obtener_archivo(ticket_id):
 # ============================================================
 
 def obtener_usuario_streamlit():
-    """Obtener usuario automáticamente de Streamlit Cloud"""
+    """Obtener email del usuario invitado en Streamlit Cloud"""
     try:
-        # Streamlit Cloud authentication
+        # Método 1: Usando get_script_run_ctx
         from streamlit.runtime.scriptrunner import get_script_run_ctx
         ctx = get_script_run_ctx()
         
-        if ctx and hasattr(ctx, 'user_info'):
-            if hasattr(ctx.user_info, 'email'):
-                return ctx.user_info.email
+        if ctx:
+            # Verificar diferentes atributos
+            if hasattr(ctx, 'user_info') and ctx.user_info:
+                if hasattr(ctx.user_info, 'email'):
+                    email = ctx.user_info.email
+                    if email and email != "unknown":
+                        return email
+    except Exception as e:
+        pass
+    
+    try:
+        # Método 2: Usando session state de Streamlit
+        if hasattr(st, '_get_session_id'):
+            session_id = st._get_session_id()
+            # El email debería estar disponible
     except:
         pass
     
-    # Fallback para desarrollo local
+    try:
+        # Método 3: Verificar en el query parameter o headers
+        from streamlit import session_state
+        if 'email' in session_state:
+            return session_state['email']
+    except:
+        pass
+    
+    # Fallback: mostrar en el header que está en usuario_local
     return "usuario_local"
 
 def validar_formato_excel(df):
