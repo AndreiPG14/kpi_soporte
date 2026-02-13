@@ -25,7 +25,11 @@ DB_FILE = "ticketera.db"
 
 # USUARIOS CON PERMISOS DE ADMIN
 ADMIN_USERS = [
-    "lperez@aquanqa.pe"  # Agrega tu usuario aquí
+    "admin@example.com",
+    "andrei@aquanqa.com",
+    "supervisor@aquanqa.com",
+    "usuario_local",  # Para desarrollo local
+    "lperez@aquanqa.com"  # Agrega tu usuario aquí
 ]
 
 # ============================================================
