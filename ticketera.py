@@ -1,15 +1,15 @@
 """
 TICKETERA DE SOPORTE - VISTA ADMIN
 Con autenticación automática de Streamlit Cloud
-Solo ciertas cuentas tienen permisos de admin
+Usa SQLite (misma BD que el usuario)
 """
 
 import streamlit as st
 import pandas as pd
 import json
-import os
+import sqlite3
 from datetime import datetime
-from pathlib import Path
+import io
 
 # ============================================================
 # CONFIGURACIÓN
@@ -21,14 +21,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Archivo para almacenar tickets
-TICKETS_FILE = "tickets_data.json"
-UPLOADS_DIR = "ticket_uploads"
+DB_FILE = "ticketera.db"
 
-# Crear directorio de uploads si no existe
-Path(UPLOADS_DIR).mkdir(exist_ok=True)
-
-# USUARIOS CON PERMISOS DE ADMIN (actualizar con tus cuentas)
+# USUARIOS CON PERMISOS DE ADMIN
 ADMIN_USERS = [
     "admin@example.com",
     "andrei@aquanqa.com",
@@ -36,37 +31,129 @@ ADMIN_USERS = [
 ]
 
 # ============================================================
+# FUNCIONES DE BASE DE DATOS
+# ============================================================
+
+def inicializar_db():
+    """Inicializar base de datos SQLite"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tickets (
+            id TEXT PRIMARY KEY,
+            titulo TEXT NOT NULL,
+            descripcion TEXT,
+            usuario TEXT NOT NULL,
+            estado TEXT NOT NULL,
+            fecha_creacion TEXT,
+            fecha_actualizacion TEXT,
+            cantidad_registros INTEGER,
+            comentarios TEXT,
+            archivo_binario BLOB,
+            nombre_archivo TEXT
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+
+def cargar_tickets():
+    """Cargar todos los tickets"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM tickets')
+    columnas = [description[0] for description in cursor.description]
+    
+    tickets = []
+    for row in cursor.fetchall():
+        ticket = dict(zip(columnas, row))
+        ticket['comentarios'] = json.loads(ticket['comentarios'] or '[]')
+        tickets.append(ticket)
+    
+    conn.close()
+    return tickets
+
+def cambiar_estado_ticket(ticket_id, nuevo_estado):
+    """Cambiar estado de un ticket"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        UPDATE tickets 
+        SET estado = ?, fecha_actualizacion = ?
+        WHERE id = ?
+    ''', (nuevo_estado, datetime.now().strftime('%d/%m/%Y %H:%M:%S'), ticket_id))
+    
+    conn.commit()
+    conn.close()
+
+def agregar_comentario(ticket_id, usuario, comentario):
+    """Agregar comentario a un ticket"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT comentarios FROM tickets WHERE id = ?', (ticket_id,))
+    resultado = cursor.fetchone()
+    comentarios = json.loads(resultado[0] or '[]') if resultado else []
+    
+    comentarios.append({
+        'usuario': usuario,
+        'texto': comentario,
+        'fecha': datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+    })
+    
+    cursor.execute('''
+        UPDATE tickets 
+        SET comentarios = ?, fecha_actualizacion = ?
+        WHERE id = ?
+    ''', (json.dumps(comentarios), datetime.now().strftime('%d/%m/%Y %H:%M:%S'), ticket_id))
+    
+    conn.commit()
+    conn.close()
+
+def eliminar_ticket(ticket_id):
+    """Eliminar un ticket"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM tickets WHERE id = ?', (ticket_id,))
+    conn.commit()
+    conn.close()
+
+def obtener_archivo(ticket_id):
+    """Obtener archivo de un ticket"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('SELECT archivo_binario, nombre_archivo FROM tickets WHERE id = ?', (ticket_id,))
+    resultado = cursor.fetchone()
+    conn.close()
+    
+    if resultado:
+        return resultado[0], resultado[1]
+    return None, None
+
+# ============================================================
 # FUNCIONES DE UTILIDAD
 # ============================================================
 
 def obtener_usuario_streamlit():
-    """
-    Obtener usuario automáticamente de Streamlit Cloud
-    En desarrollo local: pedir login manualmente
-    En Streamlit Cloud: obtiene del contexto
-    """
+    """Obtener email del usuario invitado en Streamlit Cloud"""
     try:
-        # En Streamlit Cloud, el usuario está disponible aquí
-        from streamlit.connections import _get_session
-        session = _get_session()
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        ctx = get_script_run_ctx()
         
-        if hasattr(session, '_user_id'):
-            return session._user_id
+        if ctx and hasattr(ctx, 'user_info') and ctx.user_info:
+            if hasattr(ctx.user_info, 'email'):
+                email = ctx.user_info.email
+                if email and email != "unknown":
+                    return email
     except:
         pass
     
-    # Alternativa: obtener del contexto de Streamlit
-    try:
-        if 'user' in st.session_state:
-            return st.session_state.user
-    except:
-        pass
-    
-    # En desarrollo local, usar valor de session_state si existe
+    # Fallback para desarrollo local
     if 'admin_login_user' in st.session_state:
         return st.session_state.admin_login_user
     
-    # Si no hay usuario, retornar None para mostrar login
     return None
 
 def mostrar_login_desarrollo():
@@ -78,15 +165,11 @@ def mostrar_login_desarrollo():
         st.markdown('<h3 style="text-align: center;">Desarrollo Local - Login</h3>', unsafe_allow_html=True)
         st.markdown("---")
         
-        st.info("💡 Estás en desarrollo local. Selecciona un usuario admin para testing.")
+        st.info("💡 Estás en desarrollo local. Selecciona un usuario admin.")
         
         usuario_seleccionado = st.selectbox(
             "Selecciona usuario admin:",
-            [
-                "andreipg2314@gmail.com",
-                "andrei@aquanqa.com",
-                "supervisor@aquanqa.com"
-            ]
+            ADMIN_USERS
         )
         
         if st.button("✅ Ingresar como Admin", type="primary", use_container_width=True):
@@ -101,76 +184,6 @@ def es_admin(username):
     """Verificar si el usuario tiene permisos de admin"""
     return username.lower() in [u.lower() for u in ADMIN_USERS]
 
-def cargar_tickets():
-    """Cargar tickets desde archivo JSON"""
-    if os.path.exists(TICKETS_FILE):
-        with open(TICKETS_FILE, 'r') as f:
-            return json.load(f)
-    return []
-
-def guardar_tickets(tickets):
-    """Guardar tickets en archivo JSON"""
-    with open(TICKETS_FILE, 'w') as f:
-        json.dump(tickets, f, indent=2, ensure_ascii=False)
-
-def cambiar_estado_ticket(ticket_id, nuevo_estado):
-    """Cambiar estado de un ticket"""
-    tickets = cargar_tickets()
-    
-    for ticket in tickets:
-        if ticket['id'] == ticket_id:
-            ticket['estado'] = nuevo_estado
-            ticket['fecha_actualizacion'] = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-            break
-    
-    guardar_tickets(tickets)
-
-def agregar_comentario(ticket_id, usuario, comentario):
-    """Agregar comentario a un ticket"""
-    tickets = cargar_tickets()
-    
-    for ticket in tickets:
-        if ticket['id'] == ticket_id:
-            ticket['comentarios'].append({
-                'usuario': usuario,
-                'texto': comentario,
-                'fecha': datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-            })
-            ticket['fecha_actualizacion'] = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-            break
-    
-    guardar_tickets(tickets)
-
-def eliminar_ticket(ticket_id):
-    """Eliminar un ticket y su archivo"""
-    tickets = cargar_tickets()
-    
-    # Encontrar y eliminar el archivo
-    for ticket in tickets:
-        if ticket['id'] == ticket_id:
-            archivo_ruta = os.path.join(UPLOADS_DIR, ticket['archivo'])
-            if os.path.exists(archivo_ruta):
-                os.remove(archivo_ruta)
-            break
-    
-    # Eliminar ticket
-    tickets = [t for t in tickets if t['id'] != ticket_id]
-    guardar_tickets(tickets)
-
-def leer_archivo_excel(ticket_id, archivo_nombre):
-    """Leer archivo Excel de un ticket"""
-    try:
-        archivo_ruta = os.path.join(UPLOADS_DIR, archivo_nombre)
-        if os.path.exists(archivo_ruta):
-            return pd.read_excel(archivo_ruta)
-    except Exception as e:
-        st.error(f"Error al leer archivo: {str(e)}")
-    return None
-
-# ============================================================
-# VISTA RESTRINGIDA
-# ============================================================
-
 def mostrar_acceso_denegado(username):
     """Mostrar página de acceso denegado"""
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -184,9 +197,7 @@ def mostrar_acceso_denegado(username):
         **Tu usuario:** {username}
         
         **Usuarios con acceso admin:**
-        - admin@example.com
-        - andrei@aquanqa.com
-        - supervisor@aquanqa.com
+        {chr(10).join([f"- {u}" for u in ADMIN_USERS])}
         
         Si deberías tener acceso, contacta con el administrador.
         """)
@@ -295,7 +306,6 @@ def vista_admin(username):
     else:
         st.subheader(f"📋 Tickets ({len(tickets_filtrados)})")
         
-        # Crear dataframe para la tabla
         df_display = pd.DataFrame([
             {
                 'ID': t['id'],
@@ -319,7 +329,7 @@ def vista_admin(username):
         
         st.subheader("🎫 Detalles de Tickets")
         
-        for idx, ticket in enumerate(tickets_filtrados):
+        for ticket in tickets_filtrados:
             # Color según estado
             if ticket['estado'] == 'Abierto':
                 color = '🔴'
@@ -328,9 +338,8 @@ def vista_admin(username):
             else:
                 color = '🟢'
             
-            with st.expander(f"{color} [{ticket['id']}] {ticket['titulo']}", expanded=False):
+            with st.expander(f"{color} [{ticket['id']}] {ticket['titulo']}"):
                 
-                # Información general
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
@@ -343,7 +352,6 @@ def vista_admin(username):
                     st.write("**Fechas**")
                     st.write(f"**Creado:** {ticket['fecha_creacion']}")
                     st.write(f"**Actualizado:** {ticket['fecha_actualizacion']}")
-                    st.write("")
                 
                 with col3:
                     st.write("**Cambiar Estado**")
@@ -362,7 +370,6 @@ def vista_admin(username):
                 
                 st.divider()
                 
-                # Descripción
                 st.write("**Descripción:**")
                 st.write(ticket['descripcion'])
                 
@@ -370,41 +377,38 @@ def vista_admin(username):
                 
                 # Archivo
                 st.write("**📎 Archivo Adjunto:**")
-                archivo_ruta = os.path.join(UPLOADS_DIR, ticket['archivo'])
+                archivo_binario, nombre_archivo = obtener_archivo(ticket['id'])
                 
-                if os.path.exists(archivo_ruta):
+                if archivo_binario and nombre_archivo:
                     col1, col2 = st.columns([0.7, 0.3])
                     
                     with col1:
-                        st.write(f"Archivo: `{ticket['archivo'].split('_', 1)[1]}`")
+                        st.write(f"📁 `{nombre_archivo}`")
                     
                     with col2:
-                        with open(archivo_ruta, 'rb') as f:
-                            st.download_button(
-                                label="📥 Descargar",
-                                data=f.read(),
-                                file_name=ticket['archivo'].split('_', 1)[1],
-                                key=f"download_{ticket['id']}"
-                            )
+                        st.download_button(
+                            label="📥 Descargar",
+                            data=archivo_binario,
+                            file_name=nombre_archivo,
+                            key=f"download_{ticket['id']}"
+                        )
                     
                     # Preview de datos
                     st.write("**📊 Vista previa de datos:**")
-                    df_datos = leer_archivo_excel(ticket['id'], ticket['archivo'])
-                    
-                    if df_datos is not None:
+                    try:
+                        df_datos = pd.read_excel(io.BytesIO(archivo_binario))
                         st.dataframe(df_datos, use_container_width=True, height=300)
                         
-                        # Opción para descargar datos procesados
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            csv = df_datos.to_csv(index=False).encode('utf-8')
-                            st.download_button(
-                                label="📊 Descargar como CSV",
-                                data=csv,
-                                file_name=f"{ticket['id']}_datos.csv",
-                                mime="text/csv",
-                                key=f"csv_{ticket['id']}"
-                            )
+                        csv = df_datos.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            label="📊 Descargar como CSV",
+                            data=csv,
+                            file_name=f"{ticket['id']}_datos.csv",
+                            mime="text/csv",
+                            key=f"csv_{ticket['id']}"
+                        )
+                    except Exception as e:
+                        st.error(f"Error al leer archivo: {str(e)}")
                 
                 st.divider()
                 
@@ -415,11 +419,9 @@ def vista_admin(username):
                     for com in ticket['comentarios']:
                         st.write(f"👤 **{com['usuario']}** _{com['fecha']}_")
                         st.write(f"> {com['texto']}")
-                        st.write("")
                 else:
                     st.info("Sin comentarios")
                 
-                # Agregar comentario
                 nuevo_comentario = st.text_area(
                     "Agregar comentario:",
                     key=f"comentario_{ticket['id']}",
@@ -438,7 +440,7 @@ def vista_admin(username):
                 
                 st.divider()
                 
-                # Acciones peligrosas
+                # Acciones administrativas
                 st.write("**⚠️ Acciones Administrativas**")
                 col1, col2 = st.columns([0.7, 0.3])
                 
@@ -456,29 +458,26 @@ def vista_admin(username):
     
     st.subheader("📊 Exportación de Datos")
     
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("📥 Exportar Tickets a CSV", use_container_width=True):
-            df_export = pd.DataFrame([
-                {
-                    'ID': t['id'],
-                    'Título': t['titulo'],
-                    'Usuario': t['usuario'],
-                    'Estado': t['estado'],
-                    'Registros': t['cantidad_registros'],
-                    'Creado': t['fecha_creacion'],
-                    'Actualizado': t['fecha_actualizacion']
-                }
-                for t in tickets
-            ])
-            csv = df_export.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Descargar CSV",
-                data=csv,
-                file_name=f"tickets_{datetime.now().strftime('%d_%m_%Y')}.csv",
-                mime="text/csv"
-            )
+    if st.button("📥 Exportar Tickets a CSV", use_container_width=True):
+        df_export = pd.DataFrame([
+            {
+                'ID': t['id'],
+                'Título': t['titulo'],
+                'Usuario': t['usuario'],
+                'Estado': t['estado'],
+                'Registros': t['cantidad_registros'],
+                'Creado': t['fecha_creacion'],
+                'Actualizado': t['fecha_actualizacion']
+            }
+            for t in tickets
+        ])
+        csv = df_export.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Descargar CSV",
+            data=csv,
+            file_name=f"tickets_{datetime.now().strftime('%d_%m_%Y')}.csv",
+            mime="text/csv"
+        )
 
 # ============================================================
 # MAIN
@@ -487,15 +486,13 @@ def vista_admin(username):
 def main():
     """Función principal"""
     
-    # Obtener usuario automáticamente
+    inicializar_db()
     username = obtener_usuario_streamlit()
     
-    # Si no hay usuario en desarrollo local, mostrar login
     if username is None:
         mostrar_login_desarrollo()
         return
     
-    # Verificar permisos
     if not es_admin(username):
         mostrar_acceso_denegado(username)
     else:
