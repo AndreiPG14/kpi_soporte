@@ -1,15 +1,14 @@
 """
 TICKETERA DE SOPORTE - VISTA USUARIO
 Con autenticación automática de Streamlit Cloud
-Archivos en SQLite - NO carpeta física
+Archivos en PostgreSQL - BD COMPARTIDA
 """
 
 import streamlit as st
 import pandas as pd
 import json
-import sqlite3
+import psycopg2
 from datetime import datetime
-from pathlib import Path
 import uuid
 import io
 
@@ -23,16 +22,25 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-DB_FILE = "ticketera.db"
 COLUMNAS_REQUERIDAS = ['DNI', 'NOMBRES Y APELLIDOS', 'ACTIVIDAD', 'SUPER', 'FUNDO', 'OBSERVACIONES']
 
 # ============================================================
-# FUNCIONES DE BASE DE DATOS
+# CONEXIÓN A BASE DE DATOS
 # ============================================================
 
+@st.cache_resource
+def get_db_connection():
+    """Conectar a PostgreSQL"""
+    try:
+        conn = psycopg2.connect(st.secrets["database_url"])
+        return conn
+    except:
+        st.error("❌ Error conectando a la base de datos")
+        st.stop()
+
 def inicializar_db():
-    """Inicializar base de datos SQLite"""
-    conn = sqlite3.connect(DB_FILE)
+    """Inicializar tabla en PostgreSQL"""
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     cursor.execute('''
@@ -46,20 +54,21 @@ def inicializar_db():
             fecha_actualizacion TEXT,
             cantidad_registros INTEGER,
             comentarios TEXT,
-            archivo_binario BLOB,
+            archivo_binario BYTEA,
             nombre_archivo TEXT
         )
     ''')
     
     conn.commit()
+    cursor.close()
     conn.close()
 
 def cargar_tickets():
     """Cargar todos los tickets"""
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM tickets')
-    columnas = [description[0] for description in cursor.description]
+    cursor.execute('SELECT * FROM tickets ORDER BY fecha_creacion DESC')
+    columnas = [desc[0] for desc in cursor.description]
     
     tickets = []
     for row in cursor.fetchall():
@@ -67,18 +76,19 @@ def cargar_tickets():
         ticket['comentarios'] = json.loads(ticket['comentarios'] or '[]')
         tickets.append(ticket)
     
+    cursor.close()
     conn.close()
     return tickets
 
 def guardar_ticket(ticket, contenido_archivo=None):
-    """Guardar ticket en la base de datos"""
-    conn = sqlite3.connect(DB_FILE)
+    """Guardar ticket en PostgreSQL"""
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     cursor.execute('''
-        INSERT OR REPLACE INTO tickets 
+        INSERT INTO tickets 
         (id, titulo, descripcion, usuario, estado, fecha_creacion, fecha_actualizacion, cantidad_registros, comentarios, archivo_binario, nombre_archivo)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ''', (
         ticket['id'],
         ticket['titulo'],
@@ -94,14 +104,15 @@ def guardar_ticket(ticket, contenido_archivo=None):
     ))
     
     conn.commit()
+    cursor.close()
     conn.close()
 
 def agregar_comentario(ticket_id, usuario, comentario):
     """Agregar comentario a un ticket"""
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute('SELECT comentarios FROM tickets WHERE id = ?', (ticket_id,))
+    cursor.execute('SELECT comentarios FROM tickets WHERE id = %s', (ticket_id,))
     resultado = cursor.fetchone()
     comentarios = json.loads(resultado[0] or '[]') if resultado else []
     
@@ -113,19 +124,21 @@ def agregar_comentario(ticket_id, usuario, comentario):
     
     cursor.execute('''
         UPDATE tickets 
-        SET comentarios = ?, fecha_actualizacion = ?
-        WHERE id = ?
+        SET comentarios = %s, fecha_actualizacion = %s
+        WHERE id = %s
     ''', (json.dumps(comentarios), datetime.now().strftime('%d/%m/%Y %H:%M:%S'), ticket_id))
     
     conn.commit()
+    cursor.close()
     conn.close()
 
 def obtener_archivo(ticket_id):
     """Obtener archivo de un ticket"""
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT archivo_binario, nombre_archivo FROM tickets WHERE id = ?', (ticket_id,))
+    cursor.execute('SELECT archivo_binario, nombre_archivo FROM tickets WHERE id = %s', (ticket_id,))
     resultado = cursor.fetchone()
+    cursor.close()
     conn.close()
     
     if resultado:
@@ -139,37 +152,17 @@ def obtener_archivo(ticket_id):
 def obtener_usuario_streamlit():
     """Obtener email del usuario invitado en Streamlit Cloud"""
     try:
-        # Método 1: Usando get_script_run_ctx
         from streamlit.runtime.scriptrunner import get_script_run_ctx
         ctx = get_script_run_ctx()
         
-        if ctx:
-            # Verificar diferentes atributos
-            if hasattr(ctx, 'user_info') and ctx.user_info:
-                if hasattr(ctx.user_info, 'email'):
-                    email = ctx.user_info.email
-                    if email and email != "unknown":
-                        return email
-    except Exception as e:
-        pass
-    
-    try:
-        # Método 2: Usando session state de Streamlit
-        if hasattr(st, '_get_session_id'):
-            session_id = st._get_session_id()
-            # El email debería estar disponible
+        if ctx and hasattr(ctx, 'user_info') and ctx.user_info:
+            if hasattr(ctx.user_info, 'email'):
+                email = ctx.user_info.email
+                if email and email != "unknown":
+                    return email
     except:
         pass
     
-    try:
-        # Método 3: Verificar en el query parameter o headers
-        from streamlit import session_state
-        if 'email' in session_state:
-            return session_state['email']
-    except:
-        pass
-    
-    # Fallback: mostrar en el header que está en usuario_local
     return "usuario_local"
 
 def validar_formato_excel(df):
@@ -202,7 +195,6 @@ def crear_ticket(titulo, descripcion, usuario, archivo, df_datos):
         'comentarios': []
     }
     
-    # Guardar con el contenido del archivo
     contenido = archivo.getbuffer().tobytes()
     guardar_ticket(ticket, contenido)
     
@@ -221,7 +213,6 @@ def main():
     if "ticket_creado" not in st.session_state:
         st.session_state.ticket_creado = False
     
-    # Header
     col1, col2, col3 = st.columns([0.6, 0.2, 0.2])
     
     with col1:
@@ -232,12 +223,7 @@ def main():
     
     st.divider()
     
-    # Tabs principales
     tab1, tab2 = st.tabs(["📋 Mis Tickets", "➕ Crear Nuevo Ticket"])
-    
-    # ============================================================
-    # TAB 1: MIS TICKETS
-    # ============================================================
     
     with tab1:
         st.subheader("📋 Mis Tickets de Soporte")
@@ -248,7 +234,6 @@ def main():
         if not mis_tickets:
             st.info("📭 No tienes tickets aún. ¡Crea tu primer ticket!")
         else:
-            # Filtro por estado
             estados_disponibles = list(set([t['estado'] for t in mis_tickets]))
             filtro_estado = st.selectbox("Filtrar por estado:", ["Todos"] + estados_disponibles)
             
@@ -256,9 +241,7 @@ def main():
             if filtro_estado != "Todos":
                 tickets_filtrados = [t for t in mis_tickets if t['estado'] == filtro_estado]
             
-            # Mostrar tickets
             for ticket in tickets_filtrados:
-                # Color según estado
                 if ticket['estado'] == 'Abierto':
                     color = '🔴'
                 elif ticket['estado'] == 'En Progreso':
@@ -283,13 +266,11 @@ def main():
                     
                     st.divider()
                     
-                    # Descripción
                     st.write("**Descripción:**")
                     st.write(ticket['descripcion'])
                     
                     st.divider()
                     
-                    # Descargar archivo
                     archivo_binario, nombre_archivo = obtener_archivo(ticket['id'])
                     if archivo_binario:
                         st.download_button(
@@ -302,18 +283,15 @@ def main():
                     
                     st.divider()
                     
-                    # Comentarios
                     st.write("**💬 Comentarios:**")
                     
                     if ticket['comentarios']:
                         for com in ticket['comentarios']:
                             st.write(f"👤 **{com['usuario']}** _{com['fecha']}_")
                             st.write(f"> {com['texto']}")
-                            st.write("")
                     else:
                         st.info("Sin comentarios aún")
                     
-                    # Agregar comentario
                     nuevo_comentario = st.text_area(
                         "Agregar comentario:",
                         key=f"comentario_{ticket['id']}",
@@ -327,10 +305,6 @@ def main():
                             st.rerun()
                         else:
                             st.warning("⚠️ Escribe un comentario")
-    
-    # ============================================================
-    # TAB 2: CREAR NUEVO TICKET
-    # ============================================================
     
     with tab2:
         if st.session_state.ticket_creado:
@@ -348,7 +322,7 @@ def main():
         
         try:
             from openpyxl import Workbook
-            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.styles import Font, PatternFill
             
             wb = Workbook()
             ws = wb.active
