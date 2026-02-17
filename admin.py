@@ -23,9 +23,14 @@ st.set_page_config(
 
 # USUARIOS CON PERMISOS DE ADMIN
 ADMIN_USERS = [
+    "admin@example.com",
+    "andrei@aquanqa.com",
+    "supervisor@aquanqa.com",
+    "usuario_local",
+    "lperez@aquanqa.com",
     "andreipg2314@gmail.com",
     "lperez@aquanqa.pe",
-    "andreipg14" 
+    "andreipg14"  # Tu usuario GitHub
 ]
 
 
@@ -143,6 +148,9 @@ def obtener_usuario_streamlit():
         ctx = get_script_run_ctx()
         
         if ctx:
+            # Debug: mostrar qué atributos tiene ctx
+            # st.write(f"DEBUG - ctx attributes: {dir(ctx)}")
+            
             # Intentar obtener del user_info
             if hasattr(ctx, 'user_info') and ctx.user_info:
                 if hasattr(ctx.user_info, 'email') and ctx.user_info.email:
@@ -154,14 +162,23 @@ def obtener_usuario_streamlit():
             if hasattr(ctx, 'session') and ctx.session:
                 if hasattr(ctx.session, 'user') and ctx.session.user:
                     return ctx.session.user
-    except:
+            
+            # Intentar obtener de otros atributos
+            if hasattr(ctx, 'user') and ctx.user:
+                return ctx.user
+            
+            if hasattr(ctx, 'email') and ctx.email:
+                return ctx.email
+    except Exception as e:
         pass
     
     # Fallback para desarrollo local
     if 'admin_login_user' in st.session_state:
         return st.session_state.admin_login_user
     
-    return "usuario_local"
+    # Mostrar aviso en Streamlit Cloud
+    st.warning("⚠️ No se detectó usuario. Intenta recargar la página o desconectar/conectar GitHub.")
+    return "usuario_no_detectado"
 
 def mostrar_login_desarrollo():
     """Mostrar login para desarrollo local"""
@@ -466,6 +483,31 @@ def main():
     
     username = obtener_usuario_streamlit()
     
+    # Si no se detectó usuario, mostrar login manual
+    if username == "usuario_no_detectado" or username == "usuario_local":
+        st.markdown('<h1 style="text-align: center;">⚙️ PANEL ADMINISTRADOR</h1>', unsafe_allow_html=True)
+        st.divider()
+        
+        st.info("💡 Ingresa tu usuario para acceder al panel admin")
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            usuario_manual = st.text_input(
+                "Usuario (email o nombre):",
+                placeholder="ej: andreipg14 o tu@email.com"
+            )
+            
+            if st.button("✅ Ingresar", type="primary", use_container_width=True):
+                if usuario_manual:
+                    st.session_state.admin_login_user = usuario_manual
+                    st.success(f"✅ Ingresando como {usuario_manual}")
+                    st.rerun()
+                else:
+                    st.error("Ingresa un usuario")
+        
+        return
+    
+    # Si ya tiene usuario, verificar permisos
     if not es_admin(username):
         mostrar_acceso_denegado(username)
     else:
