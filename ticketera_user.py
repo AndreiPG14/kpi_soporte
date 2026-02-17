@@ -160,8 +160,17 @@ def obtener_archivo(ticket_id):
 # ============================================================
 
 def obtener_usuario_streamlit():
-    """Obtener email del usuario invitado en Streamlit Cloud"""
+    """Obtener email automáticamente del usuario de GitHub en Streamlit Cloud"""
     try:
+        # Intentar obtener del usuario experimental (automático en Streamlit Cloud)
+        email = st.experimental_user.email
+        if email and email != "unknown":
+            return email
+    except:
+        pass
+    
+    try:
+        # Fallback: intentar del contexto
         from streamlit.runtime.scriptrunner import get_script_run_ctx
         ctx = get_script_run_ctx()
         
