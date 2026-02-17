@@ -24,8 +24,10 @@ st.set_page_config(
 # USUARIOS CON PERMISOS DE ADMIN
 ADMIN_USERS = [
     "andreipg2314@gmail.com",
-    "lperez@aquanqa.pe"
+    "lperez@aquanqa.pe",
+    "andreipg14" 
 ]
+
 
 # ============================================================
 # CONEXIÓN A BASE DE DATOS
