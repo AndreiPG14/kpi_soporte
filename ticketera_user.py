@@ -229,6 +229,24 @@ def main():
     inicializar_db()
     username = obtener_usuario_streamlit()
     
+    # Validar que se detectó un usuario
+    if username == "usuario_local":
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown('<h1 style="text-align: center;">🔒 ACCESO DENEGADO</h1>', unsafe_allow_html=True)
+            st.markdown("---")
+            st.error("❌ No se detectó tu usuario de GitHub")
+            st.info("""
+            **Para acceder debes:**
+            1. Estar logueado en Streamlit Cloud con tu cuenta de GitHub
+            2. Tener permisos en la app
+            
+            **Si ya estás logueado:**
+            - Intenta desconectar y conectar GitHub nuevamente
+            - Refresca la página (Ctrl+R)
+            """)
+            st.stop()
+    
     if "ticket_creado" not in st.session_state:
         st.session_state.ticket_creado = False
     
