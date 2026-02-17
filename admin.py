@@ -1,13 +1,13 @@
 """
 TICKETERA DE SOPORTE - VISTA ADMIN
 Con autenticación automática de Streamlit Cloud
-Usa SQLite (misma BD que el usuario)
+Usa PostgreSQL (misma BD que el usuario)
 """
 
 import streamlit as st
 import pandas as pd
 import json
-import sqlite3
+import psycopg2
 from datetime import datetime
 import io
 
@@ -21,51 +21,35 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-DB_FILE = "ticketera.db"
-
 # USUARIOS CON PERMISOS DE ADMIN
 ADMIN_USERS = [
     "admin@example.com",
     "andrei@aquanqa.com",
     "supervisor@aquanqa.com",
-    "usuario_local",  # Para desarrollo local
-    "lperez@aquanqa.com"  # Agrega tu usuario aquí
+    "usuario_local",
+    "lperez@aquanqa.com"
 ]
 
 # ============================================================
-# FUNCIONES DE BASE DE DATOS
+# CONEXIÓN A BASE DE DATOS
 # ============================================================
 
-def inicializar_db():
-    """Inicializar base de datos SQLite"""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tickets (
-            id TEXT PRIMARY KEY,
-            titulo TEXT NOT NULL,
-            descripcion TEXT,
-            usuario TEXT NOT NULL,
-            estado TEXT NOT NULL,
-            fecha_creacion TEXT,
-            fecha_actualizacion TEXT,
-            cantidad_registros INTEGER,
-            comentarios TEXT,
-            archivo_binario BLOB,
-            nombre_archivo TEXT
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
+@st.cache_resource
+def get_db_connection():
+    """Conectar a PostgreSQL"""
+    try:
+        conn = psycopg2.connect(st.secrets["database_url"])
+        return conn
+    except:
+        st.error("❌ Error conectando a la base de datos")
+        st.stop()
 
 def cargar_tickets():
     """Cargar todos los tickets"""
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM tickets')
-    columnas = [description[0] for description in cursor.description]
+    cursor.execute('SELECT * FROM tickets ORDER BY fecha_creacion DESC')
+    columnas = [desc[0] for desc in cursor.description]
     
     tickets = []
     for row in cursor.fetchall():
@@ -73,29 +57,31 @@ def cargar_tickets():
         ticket['comentarios'] = json.loads(ticket['comentarios'] or '[]')
         tickets.append(ticket)
     
+    cursor.close()
     conn.close()
     return tickets
 
 def cambiar_estado_ticket(ticket_id, nuevo_estado):
     """Cambiar estado de un ticket"""
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     cursor.execute('''
         UPDATE tickets 
-        SET estado = ?, fecha_actualizacion = ?
-        WHERE id = ?
+        SET estado = %s, fecha_actualizacion = %s
+        WHERE id = %s
     ''', (nuevo_estado, datetime.now().strftime('%d/%m/%Y %H:%M:%S'), ticket_id))
     
     conn.commit()
+    cursor.close()
     conn.close()
 
 def agregar_comentario(ticket_id, usuario, comentario):
     """Agregar comentario a un ticket"""
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute('SELECT comentarios FROM tickets WHERE id = ?', (ticket_id,))
+    cursor.execute('SELECT comentarios FROM tickets WHERE id = %s', (ticket_id,))
     resultado = cursor.fetchone()
     comentarios = json.loads(resultado[0] or '[]') if resultado else []
     
@@ -107,27 +93,30 @@ def agregar_comentario(ticket_id, usuario, comentario):
     
     cursor.execute('''
         UPDATE tickets 
-        SET comentarios = ?, fecha_actualizacion = ?
-        WHERE id = ?
+        SET comentarios = %s, fecha_actualizacion = %s
+        WHERE id = %s
     ''', (json.dumps(comentarios), datetime.now().strftime('%d/%m/%Y %H:%M:%S'), ticket_id))
     
     conn.commit()
+    cursor.close()
     conn.close()
 
 def eliminar_ticket(ticket_id):
     """Eliminar un ticket"""
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('DELETE FROM tickets WHERE id = ?', (ticket_id,))
+    cursor.execute('DELETE FROM tickets WHERE id = %s', (ticket_id,))
     conn.commit()
+    cursor.close()
     conn.close()
 
 def obtener_archivo(ticket_id):
     """Obtener archivo de un ticket"""
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT archivo_binario, nombre_archivo FROM tickets WHERE id = ?', (ticket_id,))
+    cursor.execute('SELECT archivo_binario, nombre_archivo FROM tickets WHERE id = %s', (ticket_id,))
     resultado = cursor.fetchone()
+    cursor.close()
     conn.close()
     
     if resultado:
@@ -152,7 +141,6 @@ def obtener_usuario_streamlit():
     except:
         pass
     
-    # Fallback para desarrollo local
     if 'admin_login_user' in st.session_state:
         return st.session_state.admin_login_user
     
@@ -211,7 +199,6 @@ def mostrar_acceso_denegado(username):
 def vista_admin(username):
     """Vista principal del administrador"""
     
-    # Header
     col1, col2, col3 = st.columns([0.6, 0.2, 0.2])
     
     with col1:
@@ -223,42 +210,31 @@ def vista_admin(username):
     st.markdown("Gestión de Tickets de Soporte")
     st.divider()
     
-    # Cargar tickets
     tickets = cargar_tickets()
     
-    # ============================================================
     # DASHBOARD
-    # ============================================================
-    
     st.subheader("📊 Dashboard")
     
     col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
         st.metric("📋 Total", len(tickets))
-    
     with col2:
         abiertos = len([t for t in tickets if t['estado'] == 'Abierto'])
         st.metric("🔴 Abiertos", abiertos)
-    
     with col3:
         en_progreso = len([t for t in tickets if t['estado'] == 'En Progreso'])
         st.metric("🟡 En Progreso", en_progreso)
-    
     with col4:
         cerrados = len([t for t in tickets if t['estado'] == 'Cerrado'])
         st.metric("🟢 Cerrados", cerrados)
-    
     with col5:
         usuarios = len(set([t['usuario'] for t in tickets]))
         st.metric("👥 Usuarios", usuarios)
     
     st.divider()
     
-    # ============================================================
     # FILTROS
-    # ============================================================
-    
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -266,14 +242,12 @@ def vista_admin(username):
             "Filtrar por estado:",
             ["Todos", "Abierto", "En Progreso", "Cerrado"]
         )
-    
     with col2:
         usuarios_list = sorted(list(set([t['usuario'] for t in tickets])))
         filtro_usuario = st.selectbox(
             "Filtrar por usuario:",
             ["Todos"] + usuarios_list
         )
-    
     with col3:
         ordenar_por = st.selectbox(
             "Ordenar por:",
@@ -285,11 +259,9 @@ def vista_admin(username):
     
     if filtro_estado != "Todos":
         tickets_filtrados = [t for t in tickets_filtrados if t['estado'] == filtro_estado]
-    
     if filtro_usuario != "Todos":
         tickets_filtrados = [t for t in tickets_filtrados if t['usuario'] == filtro_usuario]
     
-    # Aplicar ordenamiento
     if ordenar_por == "Más recientes":
         tickets_filtrados = sorted(tickets_filtrados, key=lambda x: x['fecha_creacion'], reverse=True)
     elif ordenar_por == "Más antiguos":
@@ -299,10 +271,7 @@ def vista_admin(username):
     
     st.divider()
     
-    # ============================================================
     # TABLA DE TICKETS
-    # ============================================================
-    
     if not tickets_filtrados:
         st.info("📭 No hay tickets con estos filtros")
     else:
@@ -325,14 +294,10 @@ def vista_admin(username):
         
         st.divider()
         
-        # ============================================================
         # DETALLES DE TICKETS
-        # ============================================================
-        
         st.subheader("🎫 Detalles de Tickets")
         
         for ticket in tickets_filtrados:
-            # Color según estado
             if ticket['estado'] == 'Abierto':
                 color = '🔴'
             elif ticket['estado'] == 'En Progreso':
@@ -383,10 +348,8 @@ def vista_admin(username):
                 
                 if archivo_binario and nombre_archivo:
                     col1, col2 = st.columns([0.7, 0.3])
-                    
                     with col1:
                         st.write(f"📁 `{nombre_archivo}`")
-                    
                     with col2:
                         st.download_button(
                             label="📥 Descargar",
@@ -395,7 +358,6 @@ def vista_admin(username):
                             key=f"download_{ticket['id']}"
                         )
                     
-                    # Preview de datos
                     st.write("**📊 Vista previa de datos:**")
                     try:
                         df_datos = pd.read_excel(io.BytesIO(archivo_binario))
@@ -454,10 +416,7 @@ def vista_admin(username):
     
     st.divider()
     
-    # ============================================================
     # EXPORTACIÓN
-    # ============================================================
-    
     st.subheader("📊 Exportación de Datos")
     
     if st.button("📥 Exportar Tickets a CSV", use_container_width=True):
@@ -488,7 +447,6 @@ def vista_admin(username):
 def main():
     """Función principal"""
     
-    inicializar_db()
     username = obtener_usuario_streamlit()
     
     if username is None:
