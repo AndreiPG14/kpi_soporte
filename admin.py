@@ -34,14 +34,20 @@ ADMIN_USERS = [
 # CONEXIÓN A BASE DE DATOS
 # ============================================================
 
-@st.cache_resource
 def get_db_connection():
     """Conectar a PostgreSQL"""
     try:
         conn = psycopg2.connect(st.secrets["database_url"])
         return conn
-    except:
-        st.error("❌ Error conectando a la base de datos")
+    except KeyError:
+        st.error("❌ Error: variable 'database_url' no encontrada en Secrets")
+        st.info("Agrega tu URL de Supabase en Settings → Secrets con el nombre 'database_url'")
+        st.stop()
+    except psycopg2.OperationalError as e:
+        st.error(f"❌ Error de conexión a la BD: {str(e)}")
+        st.stop()
+    except Exception as e:
+        st.error(f"❌ Error desconocido: {type(e).__name__}: {str(e)}")
         st.stop()
 
 def cargar_tickets():
@@ -120,7 +126,11 @@ def obtener_archivo(ticket_id):
     conn.close()
     
     if resultado:
-        return resultado[0], resultado[1]
+        archivo_binario, nombre_archivo = resultado
+        # Convertir memoryview a bytes si es necesario
+        if isinstance(archivo_binario, memoryview):
+            archivo_binario = bytes(archivo_binario)
+        return archivo_binario, nombre_archivo
     return None, None
 
 # ============================================================
