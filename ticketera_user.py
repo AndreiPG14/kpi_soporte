@@ -231,24 +231,31 @@ def main():
     
     # Validar que se detectó un usuario
     if username is None:
+        st.markdown('<h1 style="text-align: center;">🎫 TICKETERA DE SOPORTE</h1>', unsafe_allow_html=True)
+        st.markdown("---")
+        
+        st.info("💡 Ingresa tu correo para acceder")
+        
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.markdown('<h1 style="text-align: center;">🔒 ACCESO DENEGADO</h1>', unsafe_allow_html=True)
-            st.markdown("---")
-            st.error("❌ No se detectó tu usuario")
-            st.info("""
-            **Para acceder debes:**
-            1. Estar logueado en Streamlit Cloud con:
-               - GitHub
-               - Google
-               - Cualquier proveedor de email
-            2. Tener permisos en la app
+            email_ingresado = st.text_input(
+                "Tu correo de Streamlit Cloud:",
+                placeholder="ej: tu@example.com"
+            )
             
-            **Si ya estás logueado:**
-            - Intenta desconectar y conectar nuevamente
-            - Refresca la página (Ctrl+R)
-            """)
-            st.stop()
+            if st.button("✅ Entrar", type="primary", use_container_width=True):
+                if email_ingresado and "@" in email_ingresado:
+                    st.session_state.user_email = email_ingresado
+                    st.success(f"✅ Bienvenido {email_ingresado}")
+                    st.rerun()
+                else:
+                    st.error("Ingresa un correo válido")
+        
+        return
+    
+    # Si está en session_state, usar ese
+    if 'user_email' in st.session_state:
+        username = st.session_state.user_email
     
     if "ticket_creado" not in st.session_state:
         st.session_state.ticket_creado = False
