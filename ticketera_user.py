@@ -160,7 +160,7 @@ def obtener_archivo(ticket_id):
 # ============================================================
 
 def obtener_usuario_streamlit():
-    """Obtener email automáticamente del usuario de GitHub en Streamlit Cloud"""
+    """Obtener email automáticamente (GitHub, Google, o cualquier proveedor)"""
     try:
         # Intentar obtener del usuario experimental (automático en Streamlit Cloud)
         email = st.experimental_user.email
@@ -182,7 +182,7 @@ def obtener_usuario_streamlit():
     except:
         pass
     
-    return "usuario_local"
+    return None
 
 def validar_formato_excel(df):
     """Validar que el Excel tenga el formato correcto"""
@@ -230,19 +230,22 @@ def main():
     username = obtener_usuario_streamlit()
     
     # Validar que se detectó un usuario
-    if username == "usuario_local":
+    if username is None:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.markdown('<h1 style="text-align: center;">🔒 ACCESO DENEGADO</h1>', unsafe_allow_html=True)
             st.markdown("---")
-            st.error("❌ No se detectó tu usuario de GitHub")
+            st.error("❌ No se detectó tu usuario")
             st.info("""
             **Para acceder debes:**
-            1. Estar logueado en Streamlit Cloud con tu cuenta de GitHub
+            1. Estar logueado en Streamlit Cloud con:
+               - GitHub
+               - Google
+               - Cualquier proveedor de email
             2. Tener permisos en la app
             
             **Si ya estás logueado:**
-            - Intenta desconectar y conectar GitHub nuevamente
+            - Intenta desconectar y conectar nuevamente
             - Refresca la página (Ctrl+R)
             """)
             st.stop()
