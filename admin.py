@@ -23,11 +23,8 @@ st.set_page_config(
 
 # USUARIOS CON PERMISOS DE ADMIN
 ADMIN_USERS = [
-    "admin@example.com",
-    "andrei@aquanqa.com",
-    "supervisor@aquanqa.com",
-    "usuario_local",
-    "lperez@aquanqa.com"
+    "andreipg2314@gmail.com",
+    "lperez@aquanqa.pe"
 ]
 
 # ============================================================
@@ -460,8 +457,9 @@ def main():
     username = obtener_usuario_streamlit()
     
     if username is None:
-        mostrar_login_desarrollo()
-        return
+        st.error("❌ No hay usuario logueado")
+        st.info("Debes estar logueado en Streamlit Cloud para acceder al panel admin")
+        st.stop()
     
     if not es_admin(username):
         mostrar_acceso_denegado(username)
