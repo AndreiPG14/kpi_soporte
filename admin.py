@@ -140,18 +140,26 @@ def obtener_usuario_streamlit():
         from streamlit.runtime.scriptrunner import get_script_run_ctx
         ctx = get_script_run_ctx()
         
-        if ctx and hasattr(ctx, 'user_info') and ctx.user_info:
-            if hasattr(ctx.user_info, 'email'):
-                email = ctx.user_info.email
-                if email and email != "unknown":
-                    return email
+        if ctx:
+            # Intentar obtener del user_info
+            if hasattr(ctx, 'user_info') and ctx.user_info:
+                if hasattr(ctx.user_info, 'email') and ctx.user_info.email:
+                    email = ctx.user_info.email
+                    if email != "unknown":
+                        return email
+            
+            # Intentar obtener del session
+            if hasattr(ctx, 'session') and ctx.session:
+                if hasattr(ctx.session, 'user') and ctx.session.user:
+                    return ctx.session.user
     except:
         pass
     
+    # Fallback para desarrollo local
     if 'admin_login_user' in st.session_state:
         return st.session_state.admin_login_user
     
-    return None
+    return "usuario_local"
 
 def mostrar_login_desarrollo():
     """Mostrar login para desarrollo local"""
@@ -455,11 +463,6 @@ def main():
     """Función principal"""
     
     username = obtener_usuario_streamlit()
-    
-    if username is None:
-        st.error("❌ No hay usuario logueado")
-        st.info("Debes estar logueado en Streamlit Cloud para acceder al panel admin")
-        st.stop()
     
     if not es_admin(username):
         mostrar_acceso_denegado(username)
