@@ -4,8 +4,8 @@ import numpy as np
 from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
+from auth import require_auth
 
-st.set_page_config(page_title="Comparador de Asistencia 2 Archivos", layout="wide", initial_sidebar_state="expanded")
 
 st.title("📊 Comparador de Asistencia entre 2 Archivos")
 

@@ -11,16 +11,16 @@ import psycopg2
 from datetime import datetime
 import uuid
 import io
+from auth import require_auth
+
+# ============================================================
+# AUTENTICACIÓN
+# ============================================================
 
 # ============================================================
 # CONFIGURACIÓN
 # ============================================================
 
-st.set_page_config(
-    page_title="Ticketera - Usuario",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 COLUMNAS_REQUERIDAS = ['DNI', 'NOMBRES Y APELLIDOS', 'ACTIVIDAD', 'SUPER', 'FUNDO', 'OBSERVACIONES']
 
@@ -159,31 +159,6 @@ def obtener_archivo(ticket_id):
 # FUNCIONES DE UTILIDAD
 # ============================================================
 
-def obtener_usuario_streamlit():
-    """Obtener email automáticamente (GitHub, Google, o cualquier proveedor)"""
-    try:
-        # Intentar obtener del usuario experimental (automático en Streamlit Cloud)
-        email = st.experimental_user.email
-        if email and email != "unknown":
-            return email
-    except:
-        pass
-    
-    try:
-        # Fallback: intentar del contexto
-        from streamlit.runtime.scriptrunner import get_script_run_ctx
-        ctx = get_script_run_ctx()
-        
-        if ctx and hasattr(ctx, 'user_info') and ctx.user_info:
-            if hasattr(ctx.user_info, 'email'):
-                email = ctx.user_info.email
-                if email and email != "unknown":
-                    return email
-    except:
-        pass
-    
-    return None
-
 def validar_formato_excel(df):
     """Validar que el Excel tenga el formato correcto"""
     columnas_faltantes = []
@@ -222,102 +197,55 @@ def crear_ticket(titulo, descripcion, usuario, archivo, df_datos):
 # ============================================================
 # VISTA PRINCIPAL - USUARIO
 # ============================================================
-
 def main():
-    """Función principal"""
-    
     inicializar_db()
-    username = obtener_usuario_streamlit()
-    
-    # Validar que se detectó un usuario
-    if username is None:
-        st.markdown('<h1 style="text-align: center;">🎫 TICKETERA DE SOPORTE</h1>', unsafe_allow_html=True)
-        st.markdown("---")
-        
-        st.info("💡 Ingresa tu correo para acceder")
-        
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            email_ingresado = st.text_input(
-                "Tu correo de Streamlit Cloud:",
-                placeholder="ej: tu@example.com"
-            )
-            
-            if st.button("✅ Entrar", type="primary", use_container_width=True):
-                if email_ingresado and "@" in email_ingresado:
-                    st.session_state.user_email = email_ingresado
-                    st.success(f"✅ Bienvenido {email_ingresado}")
-                    st.rerun()
-                else:
-                    st.error("Ingresa un correo válido")
-        
-        return
-    
-    # Si está en session_state, usar ese
-    if 'user_email' in st.session_state:
-        username = st.session_state.user_email
-    
+    username = st.session_state.get('user', {}).get('usuario', '')
+
     if "ticket_creado" not in st.session_state:
         st.session_state.ticket_creado = False
-    
+
     col1, col2, col3 = st.columns([0.6, 0.2, 0.2])
-    
     with col1:
         st.title("🎫 TICKETERA DE SOPORTE")
-    
     with col3:
         st.write(f"👤 **{username}**")
-    
+
     st.divider()
-    
+
     tab1, tab2 = st.tabs(["📋 Mis Tickets", "➕ Crear Nuevo Ticket"])
-    
+
     with tab1:
         st.subheader("📋 Mis Tickets de Soporte")
-        
         tickets = cargar_tickets()
         mis_tickets = [t for t in tickets if t['usuario'] == username]
-        
+
         if not mis_tickets:
             st.info("📭 No tienes tickets aún. ¡Crea tu primer ticket!")
         else:
             estados_disponibles = list(set([t['estado'] for t in mis_tickets]))
             filtro_estado = st.selectbox("Filtrar por estado:", ["Todos"] + estados_disponibles)
-            
-            tickets_filtrados = mis_tickets
-            if filtro_estado != "Todos":
-                tickets_filtrados = [t for t in mis_tickets if t['estado'] == filtro_estado]
-            
+            tickets_filtrados = mis_tickets if filtro_estado == "Todos" else [t for t in mis_tickets if t['estado'] == filtro_estado]
+
             for ticket in tickets_filtrados:
-                if ticket['estado'] == 'Abierto':
-                    color = '🔴'
-                elif ticket['estado'] == 'En Progreso':
-                    color = '🟡'
-                else:
-                    color = '🟢'
-                
+                color = '🔴' if ticket['estado'] == 'Abierto' else '🟡' if ticket['estado'] == 'En Progreso' else '🟢'
+
                 with st.expander(f"{color} [{ticket['id']}] {ticket['titulo']} - {ticket['estado']}"):
                     col1, col2, col3 = st.columns(3)
-                    
                     with col1:
                         st.metric("ID Ticket", ticket['id'])
                         st.metric("Estado", ticket['estado'])
-                    
                     with col2:
                         st.metric("Registros", ticket['cantidad_registros'])
                         st.metric("Creado", ticket['fecha_creacion'])
-                    
                     with col3:
                         st.metric("Archivo", ticket['nombre_archivo'][:30])
                         st.metric("Actualizado", ticket['fecha_actualizacion'])
-                    
+
                     st.divider()
-                    
                     st.write("**Descripción:**")
                     st.write(ticket['descripcion'])
-                    
                     st.divider()
-                    
+
                     archivo_binario, nombre_archivo = obtener_archivo(ticket['id'])
                     if archivo_binario:
                         st.download_button(
@@ -327,24 +255,17 @@ def main():
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             key=f"download_{ticket['id']}"
                         )
-                    
+
                     st.divider()
-                    
                     st.write("**💬 Comentarios:**")
-                    
                     if ticket['comentarios']:
                         for com in ticket['comentarios']:
                             st.write(f"👤 **{com['usuario']}** _{com['fecha']}_")
                             st.write(f"> {com['texto']}")
                     else:
                         st.info("Sin comentarios aún")
-                    
-                    nuevo_comentario = st.text_area(
-                        "Agregar comentario:",
-                        key=f"comentario_{ticket['id']}",
-                        height=80
-                    )
-                    
+
+                    nuevo_comentario = st.text_area("Agregar comentario:", key=f"comentario_{ticket['id']}", height=80)
                     if st.button("💬 Enviar comentario", key=f"btn_comentario_{ticket['id']}"):
                         if nuevo_comentario.strip():
                             agregar_comentario(ticket['id'], username, nuevo_comentario)
@@ -352,69 +273,65 @@ def main():
                             st.rerun()
                         else:
                             st.warning("⚠️ Escribe un comentario")
-    
+
     with tab2:
         if st.session_state.ticket_creado:
             st.success("✅ ¡Ticket creado exitosamente!")
             st.info("Puedes crear otro ticket o ir a 'Mis Tickets' para ver el que acabas de crear.")
             st.session_state.ticket_creado = False
             st.divider()
-        
+
         st.subheader("➕ Crear Nuevo Ticket")
         st.write("Por favor carga un archivo Excel con el formato específico.")
         st.divider()
-        
+
         st.write("**📥 Descargar Formato de Ejemplo:**")
         st.info("Descarga este archivo como referencia.")
-        
+
         try:
             from openpyxl import Workbook
             from openpyxl.styles import Font, PatternFill
-            
+
             wb = Workbook()
             ws = wb.active
             ws.title = "Datos"
-            
-            headers = COLUMNAS_REQUERIDAS
-            for col_idx, header in enumerate(headers, start=1):
+
+            for col_idx, header in enumerate(COLUMNAS_REQUERIDAS, start=1):
                 cell = ws.cell(row=1, column=col_idx)
                 cell.value = header
                 cell.font = Font(color='FFFFFF', bold=True, size=12)
                 cell.fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
-            
+
             ejemplos = [
                 ['12345678', 'Juan García López', 'Siembra', 'Supervisor 1', 'Fundo A', 'Trabajo realizado correctamente'],
                 ['87654321', 'María Rodríguez Pérez', 'Riego', 'Supervisor 2', 'Fundo B', 'Requiere revisión'],
             ]
-            
             for row_idx, ejemplo in enumerate(ejemplos, start=2):
                 for col_idx, valor in enumerate(ejemplo, start=1):
                     ws.cell(row=row_idx, column=col_idx).value = valor
-            
+
             excel_buffer = io.BytesIO()
             wb.save(excel_buffer)
             excel_buffer.seek(0)
-            
+
             st.download_button(
                 label="📥 Descargar Formato de Ejemplo (Excel)",
                 data=excel_buffer.getvalue(),
                 file_name="FORMATO_EJEMPLO.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                width='stretch'
             )
         except Exception as e:
             st.error(f"Error: {str(e)}")
-        
+
         st.divider()
-        
         st.write("**📋 Formato Requerido:**")
         cols_display = st.columns(len(COLUMNAS_REQUERIDAS))
         for idx, col in enumerate(COLUMNAS_REQUERIDAS):
             with cols_display[idx]:
                 st.write(f"**{col}**")
-        
+
         st.divider()
-        
+
         with st.form("form_crear_ticket", clear_on_submit=True):
             titulo = st.text_input("📌 Título del ticket:")
             descripcion = st.text_area("📝 Descripción (opcional):", height=100)
@@ -422,10 +339,9 @@ def main():
             archivo = st.file_uploader("📎 Archivo Excel:", type=['xlsx', 'xls'])
             st.divider()
             col1, col2 = st.columns([0.7, 0.3])
-            
             with col2:
-                submit_button = st.form_submit_button("✅ Crear Ticket", width='stretch', type="primary")
-            
+                submit_button = st.form_submit_button("✅ Crear Ticket", type="primary")
+
             if submit_button:
                 if not titulo:
                     st.error("❌ El título es obligatorio")
@@ -435,25 +351,16 @@ def main():
                     try:
                         df = pd.read_excel(archivo)
                         es_valido, mensaje = validar_formato_excel(df)
-                        
                         if not es_valido:
                             st.error(mensaje)
                         else:
-                            ticket = crear_ticket(
-                                titulo,
-                                descripcion if descripcion else "Sin descripción",
-                                username,
-                                archivo,
-                                df
-                            )
-                            
+                            ticket = crear_ticket(titulo, descripcion or "Sin descripción", username, archivo, df)
                             st.session_state.ticket_creado = True
                             st.success(f"✅ Ticket #{ticket['id']} creado")
                             st.balloons()
                             import time
                             time.sleep(1.5)
                             st.rerun()
-                    
                     except Exception as e:
                         st.error(f"❌ Error: {str(e)}")
 
