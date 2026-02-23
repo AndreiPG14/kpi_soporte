@@ -5,8 +5,10 @@ import os
 
 require_auth(roles_permitidos=['ADMIN'])
 
-API_URL = os.getenv("API_URL", "http://localhost:3000")
+import os
+import streamlit as st
 
+API_URL = st.secrets.get("API_URL", os.getenv("API_URL", "http://localhost:3000"))
 def get_headers():
     return {"Authorization": f"Bearer {st.session_state.get('token', '')}"}
 

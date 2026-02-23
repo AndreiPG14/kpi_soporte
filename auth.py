@@ -2,8 +2,10 @@ import streamlit as st
 import requests
 import os
 
-API_URL = os.getenv("API_URL", "http://localhost:3000")
+import os
+import streamlit as st
 
+API_URL = st.secrets.get("API_URL", os.getenv("API_URL", "http://localhost:3000"))
 def login(usuario, password):
     try:
         response = requests.post(
