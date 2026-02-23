@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 
-API_URL = "http://localhost:3000" 
+API_URL = "https://backend-ticket-si99.onrender.com" 
 
 def login(usuario, password):
     try:

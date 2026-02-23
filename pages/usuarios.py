@@ -4,7 +4,7 @@ from auth import require_auth
 
 require_auth(roles_permitidos=['ADMIN'])
 
-API_URL = "http://localhost:3000"
+API_URL = "https://backend-ticket-si99.onrender.com"
 
 def get_headers():
     return {"Authorization": f"Bearer {st.session_state.get('token', '')}"}

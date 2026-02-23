@@ -7,17 +7,10 @@ from datetime import datetime
 import io
 from auth import require_auth
 
-API_URL = "http://localhost:3000"
+API_URL = "https://backend-ticket-si99.onrender.com"
 
 require_auth(roles_permitidos=['ADMIN'])
 
-API_URL = "http://localhost:3000"
-
-# ============================================================
-# AUTENTICACIÓN
-# ============================================================
-
-require_auth(roles_permitidos=['ADMIN'])
 # ============================================================
 # CONEXIÓN A BASE DE DATOS
 # ============================================================
