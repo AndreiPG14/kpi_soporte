@@ -1,10 +1,11 @@
 import streamlit as st
 import requests
 from auth import require_auth
+import os
 
 require_auth(roles_permitidos=['ADMIN'])
 
-API_URL = "https://backend-ticket-si99.onrender.com"
+API_URL = os.getenv("API_URL", "http://localhost:3000")
 
 def get_headers():
     return {"Authorization": f"Bearer {st.session_state.get('token', '')}"}
